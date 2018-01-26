@@ -1,0 +1,16 @@
+.project
+junk.yml
+*.swp
+pm_to_blib
+blib/
+MYMETA.*
+MANIFEST
+Makefile.old
+*.gz
+*.ERR
+rpmbuild/
+.includepath
+cover_db/
+*.retry
+*.bak
+*.zip

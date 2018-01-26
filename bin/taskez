@@ -1,0 +1,224 @@
+#!/usr/bin/env perl
+
+# vim: tabstop=4 expandtab
+
+###### PACKAGES ######
+
+use Modern::Perl;
+use warnings FATAL => 'all';
+use TaskEz;
+use Text::ANSITable;
+
+use Getopt::Long;
+Getopt::Long::Configure('no_ignore_case');
+
+use Data::Dumper;
+$Data::Dumper::Sortkeys = 1;
+$Data::Dumper::Indent   = 1;
+
+#use Data::Printer alias => 'mydump';
+
+###### CONSTANTS ######
+
+###### GLOBALS ######
+
+use vars qw(
+  $Action
+  $All
+  %Dispatch
+  $Id
+  $Priority
+  $State
+  $Title
+);
+
+%Dispatch = (
+    'add'    => \&add,
+    'done'   => \&done,
+    'init'   => \&init,
+    'list'   => \&list,
+    'modify' => \&modify,
+    'sqlcli' => \&sqlcli,    # undocumented feature
+    'start'  => \&start,
+);
+
+###### MAIN ######
+
+parse_cmd_line();
+main();
+
+###### END MAIN ######
+
+sub main {
+
+    if ( $Dispatch{$Action} ) {
+        my $sub = $Dispatch{$Action};
+        $sub->();
+    }
+    else {
+        die "unknown action: $Action\n";
+    }
+}
+
+sub sqlcli {
+
+    my $task = TaskEz->new;
+    my $cmd = sprintf "sqlite3 %s", $task->get_db_path();
+    say $cmd;
+    system($cmd);
+}
+
+sub list {
+
+    my $task = TaskEz->new;
+    my $rows;
+
+    if ($All) {
+        $rows = $task->list;
+    }
+    else {
+        my %args;
+
+        if ($State) {
+            $args{state} = $State;
+        }
+        else {
+            $args{not_state} = 'done';
+        }
+
+        $rows = $task->list(%args);
+    }
+
+    my $t = Text::ANSITable->new;
+
+    # don't forget this if you want to output utf8 characters
+    binmode( STDOUT, ":utf8" );
+    $t->border_style('Default::singleh_utf8');
+
+    $t->columns( [qw(id pri title state submitted completed)] );
+    $t->column_wrap(1);
+    $t->set_column_style( 'id', fgcolor => 'fa8888' );
+
+    my $last_pri = 0;
+
+    foreach my $row (@$rows) {
+
+        my $pri = $row->{pri};
+
+        if ( $pri > 0 and $pri ne $last_pri ) {
+            $t->add_row_separator();
+        }
+
+        $t->add_row(
+            [
+                $row->{rowid},        $row->{pri},
+                $row->{title},        $row->{state},
+                $row->{insert_epoch}, $row->{done_epoch}
+            ]
+        );
+
+        $last_pri = $pri;
+    }
+
+    print $t->draw;
+}
+
+sub modify {
+    check_required( '-i', $Id );
+
+    my $task = TaskEz->new;
+    $task->modify(
+        id       => $Id,
+        priority => $Priority
+    );
+}
+
+sub start {
+
+    check_required( '-i', $Id );
+
+    my $task = TaskEz->new;
+    $task->start( id => $Id );
+}
+
+sub done {
+
+    check_required( '-i', $Id );
+
+    my $task = TaskEz->new;
+    $task->done( id => $Id );
+}
+
+sub add {
+
+    check_required( '-t', $Title );
+
+    my $task = TaskEz->new;
+    $task->add( title => $Title, priority => $Priority );
+}
+
+sub init {
+
+    my $task = TaskEz->new;
+    $task->init;
+}
+
+sub check_required {
+    my $opt = shift;
+    my $arg = shift;
+
+    print_usage("missing arg $opt") if !$arg;
+}
+
+sub parse_cmd_line {
+    my $help;
+
+    GetOptions(
+        'all'    => \$All,
+        'i=s'    => \$Id,
+        'p=s'    => \$Priority,
+        's=s'    => \$State,
+        "t=s"    => \$Title,
+        "help|?" => \$help
+    );
+
+    print_usage("usage:") if $help;
+
+    #check_required( '-e', $Example );
+
+    if ( @ARGV < 1 ) {
+        print_usage("missing action");
+    }
+
+    $Priority = 10 if !defined $Priority;
+
+    $Action = shift @ARGV;
+}
+
+sub print_usage {
+    print STDERR "@_\n";
+
+    print <<"HERE";
+
+usage: taskez <action> [options]
+
+    actions:  
+        add
+        done
+        init
+        list
+        modify
+        start
+           
+    options: 
+        [--all]
+        [-i <id>]
+        [-p <priority>]
+        [-s <state>]
+        [-t <title>]  
+        [-?] (usage)
+     
+HERE
+
+    exit 1;
+}

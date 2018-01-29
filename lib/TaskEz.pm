@@ -12,7 +12,7 @@ use File::Basename;
 use DateTime;
 use SQL::Abstract::Complete;
 
-use Data::Printer alias => 'mydump';
+use Data::Printer alias => 'pdump';
 
 =head1 NAME
 
@@ -59,6 +59,8 @@ if you don't export anything, such as for a purely object-oriented module.
 
 #sub function2 {
 #}
+
+use constant DEFAULT_PRIORITY => 10;
 
 ###############################################################
 
@@ -145,13 +147,48 @@ method done (:$id!) {
         update tasks
         set 
             state = 'done',
-            done_epoch = ? 
+            done_epoch = ?,
+            done_flag = 1,
+            hold_flag = 0,
+            hold_until_epoch = null,
+            pri = null
         where 
             rowid = ?
     };
 
     my $dbh = $self->get_dbh;
     $dbh->do( $sql, undef, $done_epoch, $id );
+}
+
+method hold (Num :$id!,
+             Num :$days) {
+
+    if ( $self->_is_done( id => $id ) ) {
+        $self->my_error("can't put on hold because it is marked as done");
+    }
+
+    my %values = (
+        state     => 'hold',
+        hold_flag => 1,
+    );
+
+    if ( defined $days ) {
+
+        my $dt = DateTime->now;
+        $dt->add( days => $days );
+        $values{hold_until_epoch} = $dt->epoch;
+    }
+    else {
+        $values{hold_until_epoch} = undef;
+    }
+
+    my %where = ( rowid => $id );
+
+    my $sql = SQL::Abstract::Complete->new;
+    my ( $stmt, @bind ) = $sql->update( 'tasks', \%values, \%where );
+
+    my $dbh = $self->get_dbh;
+    $dbh->do( $stmt, undef, @bind );
 }
 
 method start (:$id!) {
@@ -166,93 +203,103 @@ method start (:$id!) {
     $dbh->do( $stmt, undef, @bind );
 }
 
+method get_row_by_id (Num    :$id!,
+                     Object :$dbh) {
+
+    $dbh = $self->get_dbh if !$dbh;
+
+    my $sql = qq{
+        select rowid, * from tasks where rowid = $id
+    };
+
+    return $dbh->selectrow_hashref($sql);
+}
+
 method list (Str        :$state, 
-             Str|Undef  :$not_state) {
+             Str|Undef  :$not_state,
+             Num        :$hold_flag,
+             ArrayRef   :$order_by = []) {
 
     my %where;
-
-    if ($state) {
-        $where{state} = $state;
-    }
-
-    if ($not_state) {
-        $where{state} = { '!=', 'done' },;
-    }
-
-    my @order = ( 'pri', 'insert_epoch' );
+    $where{state} = $state if $state;
+    $where{state} = { '!=', $not_state } if $not_state;
+    $where{hold_flag} = $hold_flag if defined $hold_flag;
 
     my $sql  = SQL::Abstract::Complete->new;
     my @cols = (
-        'rowid', 'pri', 'title', 'state',
-        "datetime(insert_epoch,'unixepoch') as insert_epoch",
-        "datetime(done_epoch, 'unixepoch') as done_epoch"
+        'rowid',
+        'pri',
+        'title',
+        'state',
+        "datetime(insert_epoch,     
+            'unixepoch', 'localtime') as insert_date",
+        "datetime(done_epoch,       
+            'unixepoch', 'localtime') as done_date",
+        "datetime(hold_until_epoch, 
+            'unixepoch', 'localtime') as hold_until_date",
+        'hold_flag'
     );
     my ( $stmt, @bind ) =
-      $sql->select( 'tasks', [@cols], \%where, { order_by => \@order } );
+      $sql->select( 'tasks', [@cols], \%where, { order_by => $order_by } );
 
     my $dbh = $self->get_dbh;
     my $sth = $dbh->prepare($stmt);
     $sth->execute(@bind);
 
     my @rows;
-     
+
     while ( my $row = $sth->fetchrow_hashref ) {
         push @rows, $row;
     }
-    
-    return \@rows;  # return aref of href
+
+    return \@rows;    # return aref of href
 }
 
-method modify (Int :$id!,
-               Int :$priority) {
-
+method modify (Int       :$id!,
+               Int|Undef :$priority,
+               Str       :$state,
+               Int       :$hold_flag = 0,
+               Int       :$hold_until_epoch = 0) {
+                   
     my %values;
-    $values{pri} = $priority if defined $priority;
-
+    $values{pri}              = $priority         if defined $priority;
+    $values{state}            = $state            if defined $state;
+    $values{hold_until_epoch} = $hold_until_epoch if defined $hold_until_epoch;
+    $values{hold_flag}        = $hold_flag;
+    
     my %where;
     $where{rowid} = $id;
 
     my $sql = SQL::Abstract::Complete->new;
-    my ( $stmt, @bind ) = $sql->update( 'tasks', \%values, \%where );
-
+    my ( $stmt, @bind ) =
+      $sql->update( 'tasks', \%values, \%where );
+    
     my $dbh = $self->get_dbh;
     $dbh->do( $stmt, undef, @bind );
 }
 
-method add (Str :$title!, 
-            Str :$state = 'pending',
+method add (Str       :$title!, 
+            Str       :$state = 'pending',
             Int|Undef :$priority,
-            Int :$epoch = time) {
+            Int       :$epoch = time) {
 
-    my @cols;
-    my @bind;
-
-    push @cols, 'title';
-    push @bind, $title;
-
-    push @cols, 'state';
-    push @bind, $state;
-
-    push @cols, 'pri';
-    push @bind, $priority;
-
-    push @cols, 'insert_epoch';
-    push @bind, $epoch;
-
-    my $cols = join( ', ', @cols );
-
-    my @qmarks = map { '?' } @bind;
-    my $qmarks = join( ', ', @qmarks );
-
-    my $sql = qq{
-        insert into tasks 
-            ($cols)
-        values     
-            ($qmarks)
-    };
-
+    my %values;
+    $values{title} = $title;
+    $values{state} = $state;
+    
+    if (defined $priority) {
+        $values{pri} = $priority;
+    }
+    else {
+        $values{pri} = DEFAULT_PRIORITY;
+    }
+    
+    my $sql = SQL::Abstract::Complete->new;
+    my ( $stmt, @bind ) =
+      $sql->insert( 'tasks', \%values );
+      
     my $dbh = $self->get_dbh;
-    $dbh->do( $sql, undef, @bind );
+    $dbh->do( $stmt, undef, @bind );
 }
 
 method get_dbh {
@@ -286,9 +333,86 @@ method init_db {
             CONSTRAINT title_unique UNIQUE (title)
         );  
     };
-    $dbh->do($sql);
+    my $rc = $dbh->do($sql);
 
-    say "db created at " . $self->get_db_path;
+    $self->upgrade_db();
+}
+
+method upgrade_db (Object :$dbh) {
+
+    $dbh = $self->get_dbh if !$dbh;
+
+    if ( !$self->_column_exists( dbh => $dbh, col => 'hold_until_epoch' ) ) {
+
+        my $sql = qq{
+            alter table tasks
+            add hold_until_epoch int
+        };
+        $dbh->do($sql);
+    }
+
+    if ( !$self->_column_exists( dbh => $dbh, col => 'hold_flag' ) ) {
+
+        my $sql = qq{
+            alter table tasks
+            add hold_flag int
+        };
+        $dbh->do($sql);
+    }
+}
+
+method _column_exists (Object :$dbh,
+                      Str    :$col!) {
+
+    $dbh = $self->get_dbh if !$dbh;
+
+    my $sql = qq{
+        pragma table_info(tasks);
+    };
+
+    my $sth = $dbh->prepare($sql);
+    $sth->execute;
+
+    my $found = 0;
+
+    while ( my $has_col = ( $sth->fetchrow_array )[1] ) {
+
+        if ( $has_col eq $col ) {
+            $found = 1;
+        }
+    }
+
+    return $found;
+}
+
+method _is_done (Num    :$id!,
+                 Object :$dbh) {
+
+    $dbh = $self->get_dbh if !$dbh;
+
+    my $sql = SQL::Abstract::Complete->new;
+    my ( $stmt, @bind ) =
+      $sql->select( 'tasks', ['*'], { rowid => $id } );
+
+    my $href = $dbh->selectrow_hashref( $stmt, undef, @bind );
+
+    # qc
+    if ( $href->{done_flag} ) {
+        if ( !$href->{done_epoch} ) {
+            confess "done_flag is set, but missing done_epoch";
+        }
+    }
+    else {
+        if ( $href->{done_epoch} ) {
+            confess "done_flag is not set, but done_epoch is";
+        }
+    }
+
+    if ( $href->{done_flag} ) {
+        return 1;
+    }
+
+    return 0;
 }
 
 method debug ($msg!) {
@@ -299,9 +423,9 @@ method debug ($msg!) {
     }
 }
 
-method my_error {
+method my_error (@args) {
 
-    print STDERR "ERROR: @_\n";
+    print STDERR "ERROR: @args\n";
     exit 2;
 }
 

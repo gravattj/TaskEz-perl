@@ -16,9 +16,11 @@ use Data::Dumper;
 $Data::Dumper::Sortkeys = 1;
 $Data::Dumper::Indent   = 1;
 
-#use Data::Printer alias => 'mydump';
+use Data::Printer alias => 'pdump';
 
 ###### CONSTANTS ######
+
+use constant ORDER_BY_DEFAULT => ( 'pri', 'insert_epoch' );
 
 ###### GLOBALS ######
 
@@ -26,6 +28,7 @@ use vars qw(
   $Action
   $All
   %Dispatch
+  $HoldDur
   $Id
   $Priority
   $State
@@ -33,13 +36,16 @@ use vars qw(
 );
 
 %Dispatch = (
-    'add'    => \&add,
-    'done'   => \&done,
-    'init'   => \&init,
-    'list'   => \&list,
-    'modify' => \&modify,
-    'sqlcli' => \&sqlcli,    # undocumented feature
-    'start'  => \&start,
+    'add'        => \&add,
+    'done'       => \&done,
+    'dump'       => \&dump,
+    'hold'       => \&hold,
+    'init'       => \&init,
+    'list'       => \&list,
+    'modify'     => \&modify,
+    'sqlcli'     => \&sqlcli,       # undocumented feature
+    'start'      => \&start,
+    'upgrade-db' => \&upgrade_db,
 );
 
 ###### MAIN ######
@@ -68,26 +74,35 @@ sub sqlcli {
     system($cmd);
 }
 
-sub list {
+sub dump {
 
     my $task = TaskEz->new;
-    my $rows;
+    my $href = $task->get_row_by_id( id => $Id );
+    pdump($href);
+}
 
-    if ($All) {
-        $rows = $task->list;
-    }
-    else {
-        my %args;
+sub list {
+
+    my %args;
+
+    $args{order_by} = [ORDER_BY_DEFAULT];
+
+    if ( !$All ) {
 
         if ($State) {
             $args{state} = $State;
+
+            if ( $State eq 'done' ) {
+                $args{order_by} = ['done_epoch'];
+            }
         }
         else {
             $args{not_state} = 'done';
         }
-
-        $rows = $task->list(%args);
     }
+
+    my $task = TaskEz->new;
+    my $rows = $task->list(%args);
 
     my $t = Text::ANSITable->new;
 
@@ -95,26 +110,42 @@ sub list {
     binmode( STDOUT, ":utf8" );
     $t->border_style('Default::singleh_utf8');
 
-    $t->columns( [qw(id pri title state submitted completed)] );
+    $t->columns( [qw(pri id title state date)] );
     $t->column_wrap(1);
-    $t->set_column_style( 'id', fgcolor => 'fa8888' );
 
-    my $last_pri = 0;
+    #    $t->set_column_style( 'id', fgcolor => 'fa8888' );
+
+    my $last_pri;
 
     foreach my $row (@$rows) {
 
         my $pri = $row->{pri};
+        $pri = 0 if !defined $pri;
 
-        if ( $pri > 0 and $pri ne $last_pri ) {
-            $t->add_row_separator();
+        if ( defined $last_pri ) {
+            if ( $last_pri != $pri ) {
+                $t->add_row_separator();
+            }
+        }
+
+        my $date;
+        if ( $row->{done_flag} ) {
+            $date = $row->{done_date};
+        }
+        elsif ( $row->{hold_flag} ) {
+            if ( !$row->{hold_until_date} ) {
+                $date = 'infinite';
+            }
+            else {
+                $date = $row->{hold_until_date};
+            }
+        }
+        else {
+            $date = $row->{insert_date};
         }
 
         $t->add_row(
-            [
-                $row->{rowid},        $row->{pri},
-                $row->{title},        $row->{state},
-                $row->{insert_epoch}, $row->{done_epoch}
-            ]
+            [ $row->{pri}, $row->{rowid}, $row->{title}, $row->{state}, $date ]
         );
 
         $last_pri = $pri;
@@ -123,13 +154,34 @@ sub list {
     print $t->draw;
 }
 
+sub hold {
+
+    check_required( '-i', $Id );
+
+    my %args;
+    $args{id} = $Id;
+
+    if ($HoldDur) {
+        if ( $HoldDur =~ /^(\d+)d$/ ) {
+            $args{days} = $1;
+        }
+        else {
+            die "unrecognized hold duration\n";
+        }
+    }
+
+    my $task = TaskEz->new;
+    $task->hold(%args);
+}
+
 sub modify {
     check_required( '-i', $Id );
 
     my $task = TaskEz->new;
     $task->modify(
         id       => $Id,
-        priority => $Priority
+        priority => $Priority,
+        state    => $State,
     );
 }
 
@@ -163,6 +215,12 @@ sub init {
     $task->init;
 }
 
+sub upgrade_db {
+
+    my $task = TaskEz->new;
+    $task->upgrade_db;
+}
+
 sub check_required {
     my $opt = shift;
     my $arg = shift;
@@ -175,6 +233,7 @@ sub parse_cmd_line {
 
     GetOptions(
         'all'    => \$All,
+        'h=s'    => \$HoldDur,
         'i=s'    => \$Id,
         'p=s'    => \$Priority,
         's=s'    => \$State,
@@ -182,36 +241,41 @@ sub parse_cmd_line {
         "help|?" => \$help
     );
 
-    print_usage("usage:") if $help;
+    print_usage() if $help;
 
     #check_required( '-e', $Example );
 
     if ( @ARGV < 1 ) {
-        print_usage("missing action");
+        $Action = 'list';
     }
-
-    $Priority = 10 if !defined $Priority;
-
-    $Action = shift @ARGV;
+    else {
+        $Action = shift @ARGV;
+    }
 }
 
 sub print_usage {
-    print STDERR "@_\n";
+
+    my $msg = shift;
+    print STDERR "@_\n" if $msg;
 
     print <<"HERE";
 
-usage: taskez <action> [options]
+usage: taskez [action] [options]
 
     actions:  
         add
         done
+        dump
+        hold
         init
-        list
+        list    (default)
         modify
         start
+        upgrade-db
            
     options: 
         [--all]
+        [-h <hold dur>] (-Xd) 
         [-i <id>]
         [-p <priority>]
         [-s <state>]

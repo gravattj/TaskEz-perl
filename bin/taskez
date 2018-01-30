@@ -30,6 +30,7 @@ use vars qw(
   %Dispatch
   $HoldDur
   $Id
+  $OrderBy
   $Priority
   $State
   $Title
@@ -43,9 +44,11 @@ use vars qw(
     'init'       => \&init,
     'list'       => \&list,
     'modify'     => \&modify,
+    'pending' => \&pending,
     'sqlcli'     => \&sqlcli,       # undocumented feature
     'start'      => \&start,
     'upgrade-db' => \&upgrade_db,
+    'wip' => \&wip,
 );
 
 ###### MAIN ######
@@ -129,6 +132,7 @@ sub list {
         }
 
         my $date;
+
         if ( $row->{done_flag} ) {
             $date = $row->{done_date};
         }
@@ -174,6 +178,18 @@ sub hold {
     $task->hold(%args);
 }
 
+sub pending {
+    
+    $State = 'pending';
+    list();    
+}
+
+sub wip {
+
+    $State = 'wip';
+    list();    
+}
+
 sub modify {
     check_required( '-i', $Id );
 
@@ -195,10 +211,40 @@ sub start {
 
 sub done {
 
-    check_required( '-i', $Id );
-
     my $task = TaskEz->new;
-    $task->done( id => $Id );
+
+    if ($Id) {
+        $task->done( id => $Id );
+    }
+    else {
+        my %args;
+
+        $args{order_by} = ['done_epoch desc'];
+        $args{state}    = 'done';
+
+        my $rows = $task->list(%args);
+
+        my $t = Text::ANSITable->new;
+
+        # don't forget this if you want to output utf8 characters
+        binmode( STDOUT, ":utf8" );
+        $t->border_style('Default::singleh_utf8');
+
+        $t->columns( [qw(pri id title state date)] );
+        $t->column_wrap(1);
+
+        foreach my $row (@$rows) {
+
+            $t->add_row(
+                [
+                    $row->{pri},   $row->{rowid}, $row->{title},
+                    $row->{state}, $row->{done_date}
+                ]
+            );
+        }
+
+        print $t->draw;
+    }
 }
 
 sub add {
@@ -270,8 +316,10 @@ usage: taskez [action] [options]
         init
         list    (default)
         modify
+        pending 
         start
         upgrade-db
+        wip
            
     options: 
         [--all]

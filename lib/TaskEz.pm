@@ -235,6 +235,7 @@ method list (Str        :$state,
             'unixepoch', 'localtime') as insert_date",
         "datetime(done_epoch,       
             'unixepoch', 'localtime') as done_date",
+        'done_flag',
         "datetime(hold_until_epoch, 
             'unixepoch', 'localtime') as hold_until_date",
         'hold_flag'
@@ -257,7 +258,7 @@ method list (Str        :$state,
 
 method modify (Int       :$id!,
                Int|Undef :$priority,
-               Str       :$state,
+               Str|Undef :$state,
                Int       :$hold_flag = 0,
                Int       :$hold_until_epoch = 0) {
                    
@@ -286,7 +287,8 @@ method add (Str       :$title!,
     my %values;
     $values{title} = $title;
     $values{state} = $state;
-    
+    $values{insert_epoch} = $epoch;
+     
     if (defined $priority) {
         $values{pri} = $priority;
     }

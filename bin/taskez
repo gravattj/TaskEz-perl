@@ -33,22 +33,24 @@ use vars qw(
   $OrderBy
   $Priority
   $State
+  $TaskEz
   $Title
 );
 
 %Dispatch = (
     'add'        => \&add,
+    'delete'     => \&delete,
     'done'       => \&done,
     'dump'       => \&dump,
     'hold'       => \&hold,
     'init'       => \&init,
     'list'       => \&list,
     'modify'     => \&modify,
-    'pending' => \&pending,
+    'pending'    => \&pending,
     'sqlcli'     => \&sqlcli,       # undocumented feature
     'start'      => \&start,
     'upgrade-db' => \&upgrade_db,
-    'wip' => \&wip,
+    'wip'        => \&wip,
 );
 
 ###### MAIN ######
@@ -59,6 +61,8 @@ main();
 ###### END MAIN ######
 
 sub main {
+
+    $TaskEz = TaskEz->new;
 
     if ( $Dispatch{$Action} ) {
         my $sub = $Dispatch{$Action};
@@ -71,17 +75,22 @@ sub main {
 
 sub sqlcli {
 
-    my $task = TaskEz->new;
-    my $cmd = sprintf "sqlite3 %s", $task->get_db_path();
+    my $cmd = sprintf "sqlite3 %s", $TaskEz->get_db_path();
     say $cmd;
     system($cmd);
 }
 
 sub dump {
 
-    my $task = TaskEz->new;
-    my $href = $task->get_row_by_id( id => $Id );
+    my $href = $TaskEz->get_row_by_id( id => $Id );
     pdump($href);
+}
+
+sub delete {
+
+    check_required( '-i', $Id );
+
+    $TaskEz->delete( id => $Id );
 }
 
 sub list {
@@ -104,8 +113,7 @@ sub list {
         }
     }
 
-    my $task = TaskEz->new;
-    my $rows = $task->list(%args);
+    my $rows = $TaskEz->list(%args);
 
     my $t = Text::ANSITable->new;
 
@@ -174,27 +182,26 @@ sub hold {
         }
     }
 
-    my $task = TaskEz->new;
-    $task->hold(%args);
+    $TaskEz->hold(%args);
 }
 
 sub pending {
-    
+
     $State = 'pending';
-    list();    
+    list();
 }
 
 sub wip {
 
     $State = 'wip';
-    list();    
+    list();
 }
 
 sub modify {
+    
     check_required( '-i', $Id );
 
-    my $task = TaskEz->new;
-    $task->modify(
+    $TaskEz->modify(
         id       => $Id,
         priority => $Priority,
         state    => $State,
@@ -205,16 +212,13 @@ sub start {
 
     check_required( '-i', $Id );
 
-    my $task = TaskEz->new;
-    $task->start( id => $Id );
+    $TaskEz->start( id => $Id );
 }
 
 sub done {
 
-    my $task = TaskEz->new;
-
     if ($Id) {
-        $task->done( id => $Id );
+        $TaskEz->done( id => $Id );
     }
     else {
         my %args;
@@ -222,7 +226,7 @@ sub done {
         $args{order_by} = ['done_epoch desc'];
         $args{state}    = 'done';
 
-        my $rows = $task->list(%args);
+        my $rows = $TaskEz->list(%args);
 
         my $t = Text::ANSITable->new;
 
@@ -251,20 +255,17 @@ sub add {
 
     check_required( '-t', $Title );
 
-    my $task = TaskEz->new;
-    $task->add( title => $Title, priority => $Priority );
+    $TaskEz->add( title => $Title, priority => $Priority );
 }
 
 sub init {
 
-    my $task = TaskEz->new;
-    $task->init;
+    $TaskEz->init;
 }
 
 sub upgrade_db {
 
-    my $task = TaskEz->new;
-    $task->upgrade_db;
+    $TaskEz->upgrade_db;
 }
 
 sub check_required {
@@ -310,6 +311,7 @@ usage: taskez [action] [options]
 
     actions:  
         add
+        delete
         done
         dump
         hold

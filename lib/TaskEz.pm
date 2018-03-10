@@ -139,25 +139,36 @@ method init () {
     $self->init_db;
 }
 
-method done (:$id!) {
+method delete (:$id!) {
 
-    my $done_epoch = time;
+    my %where;
+    $where{rowid} = $id;
 
-    my $sql = qq{
-        update tasks
-        set 
-            state = 'done',
-            done_epoch = ?,
-            done_flag = 1,
-            hold_flag = 0,
-            hold_until_epoch = null,
-            pri = null
-        where 
-            rowid = ?
-    };
+    my $sql = SQL::Abstract::Complete->new;
+    my ( $stmt, @bind ) = $sql->delete( 'tasks', \%where );
 
     my $dbh = $self->get_dbh;
-    $dbh->do( $sql, undef, $done_epoch, $id );
+    $dbh->do( $stmt, undef, @bind );
+}
+
+method done (:$id!) {
+
+    my %values = (
+        state            => 'done',
+        done_epoch       => time,
+        done_flag        => 1,
+        hold_flag        => 1,
+        hold_until_epoch => undef,
+        pri              => undef,
+    );
+
+    my %where = ( rowid => $id );
+
+    my $sql = SQL::Abstract::Complete->new;
+    my ( $stmt, @bind ) = $sql->update( 'tasks', \%values, \%where );
+
+    my $dbh = $self->get_dbh;
+    $dbh->do( $stmt, undef, @bind );
 }
 
 method hold (Num :$id!,
@@ -261,20 +272,19 @@ method modify (Int       :$id!,
                Str|Undef :$state,
                Int       :$hold_flag = 0,
                Int       :$hold_until_epoch = 0) {
-                   
+
     my %values;
     $values{pri}              = $priority         if defined $priority;
     $values{state}            = $state            if defined $state;
     $values{hold_until_epoch} = $hold_until_epoch if defined $hold_until_epoch;
     $values{hold_flag}        = $hold_flag;
-    
+
     my %where;
     $where{rowid} = $id;
 
     my $sql = SQL::Abstract::Complete->new;
-    my ( $stmt, @bind ) =
-      $sql->update( 'tasks', \%values, \%where );
-    
+    my ( $stmt, @bind ) = $sql->update( 'tasks', \%values, \%where );
+
     my $dbh = $self->get_dbh;
     $dbh->do( $stmt, undef, @bind );
 }
@@ -285,21 +295,20 @@ method add (Str       :$title!,
             Int       :$epoch = time) {
 
     my %values;
-    $values{title} = $title;
-    $values{state} = $state;
+    $values{title}        = $title;
+    $values{state}        = $state;
     $values{insert_epoch} = $epoch;
-     
-    if (defined $priority) {
+
+    if ( defined $priority ) {
         $values{pri} = $priority;
     }
     else {
         $values{pri} = DEFAULT_PRIORITY;
     }
-    
+
     my $sql = SQL::Abstract::Complete->new;
-    my ( $stmt, @bind ) =
-      $sql->insert( 'tasks', \%values );
-      
+    my ( $stmt, @bind ) = $sql->insert( 'tasks', \%values );
+
     my $dbh = $self->get_dbh;
     $dbh->do( $stmt, undef, @bind );
 }

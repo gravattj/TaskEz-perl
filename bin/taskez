@@ -25,16 +25,16 @@ use constant ORDER_BY_DEFAULT => ( 'pri', 'insert_epoch' );
 ###### GLOBALS ######
 
 use vars qw(
-  $Action
-  $All
-  %Dispatch
-  $HoldDur
-  $Id
-  $OrderBy
-  $Priority
-  $State
-  $TaskEz
-  $Title
+    $Action
+    $All
+    %Dispatch
+    $HoldDur
+    $Id
+    $OrderBy
+    $Priority
+    $State
+    $TaskEz
+    $Title
 );
 
 %Dispatch = (
@@ -117,6 +117,7 @@ sub list {
 
     my $t = new_text_ansitable();
     $t->columns( [qw(pri id title state date)] );
+
     #    $t->set_column_style( 'id', fgcolor => 'fa8888' );
 
     my $last_pri;
@@ -150,7 +151,9 @@ sub list {
         }
 
         $t->add_row(
-            [ $row->{pri}, $row->{rowid}, $row->{title}, $row->{state}, $date ]
+            [   $row->{pri},   $row->{rowid}, $row->{title},
+                $row->{state}, $date
+            ]
         );
 
         $last_pri = $pri;
@@ -191,7 +194,7 @@ sub wip {
 }
 
 sub modify {
-    
+
     check_required( '-i', $Id );
 
     $TaskEz->modify(
@@ -227,8 +230,7 @@ sub done {
         foreach my $row (@$rows) {
 
             $t->add_row(
-                [
-                    $row->{pri},   $row->{rowid}, $row->{title},
+                [   $row->{pri},   $row->{rowid}, $row->{title},
                     $row->{state}, $row->{done_date}
                 ]
             );
@@ -240,11 +242,11 @@ sub done {
 
 sub new_text_ansitable {
 
-       my $t = Text::ANSITable->new(use_utf8 => 1, column_wrap => 1);
-       binmode( STDOUT, ":utf8" );
-       $t->border_style('Default::singleh_utf8');
+    my $t = Text::ANSITable->new( use_utf8 => 1, column_wrap => 1 );
+    binmode( STDOUT, ":utf8" );
+    $t->border_style('Default::singleh_utf8');
 
-        return $t;
+    return $t;
 }
 
 sub add {

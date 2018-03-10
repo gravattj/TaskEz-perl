@@ -115,15 +115,8 @@ sub list {
 
     my $rows = $TaskEz->list(%args);
 
-    my $t = Text::ANSITable->new;
-
-    # don't forget this if you want to output utf8 characters
-    binmode( STDOUT, ":utf8" );
-    $t->border_style('Default::singleh_utf8');
-
+    my $t = new_text_ansitable();
     $t->columns( [qw(pri id title state date)] );
-    $t->column_wrap(1);
-
     #    $t->set_column_style( 'id', fgcolor => 'fa8888' );
 
     my $last_pri;
@@ -228,14 +221,8 @@ sub done {
 
         my $rows = $TaskEz->list(%args);
 
-        my $t = Text::ANSITable->new;
-
-        # don't forget this if you want to output utf8 characters
-        binmode( STDOUT, ":utf8" );
-        $t->border_style('Default::singleh_utf8');
-
+        my $t = new_text_ansitable();
         $t->columns( [qw(pri id title state date)] );
-        $t->column_wrap(1);
 
         foreach my $row (@$rows) {
 
@@ -249,6 +236,15 @@ sub done {
 
         print $t->draw;
     }
+}
+
+sub new_text_ansitable {
+
+       my $t = Text::ANSITable->new(use_utf8 => 1, column_wrap => 1);
+       binmode( STDOUT, ":utf8" );
+       $t->border_style('Default::singleh_utf8');
+
+        return $t;
 }
 
 sub add {

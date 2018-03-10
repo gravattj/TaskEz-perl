@@ -18,6 +18,10 @@ my $builder = Module::Build->new(
     requires => {
         #'ABC'              => 1.6,
         #'Foo::Bar::Module' => 5.0401,
+		'List::Util' => 1.50,
+		'SQL::Abstract::Complete' => 0,
+		'Text::ANSITable' => 0,
+		'Data::Unixish' => 0,
     },
     add_to_cleanup     => [ 'TaskEz-*' ],
     create_makefile_pl => 'traditional',

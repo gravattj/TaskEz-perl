@@ -8,6 +8,7 @@ use Modern::Perl;
 use warnings FATAL => 'all';
 use TaskEz;
 use Text::ANSITable;
+use Scalar::Util qw(looks_like_number);
 
 use Getopt::Long;
 Getopt::Long::Configure('no_ignore_case');
@@ -21,6 +22,20 @@ use Data::Printer alias => 'pdump';
 ###### CONSTANTS ######
 
 use constant ORDER_BY_DEFAULT => ( 'pri', 'insert_epoch' );
+
+use vars qw(%PRIORITY2STR %STR2PRIORITY);
+
+%PRIORITY2STR = (
+    1 => 'high',
+    2 => 'med',
+    3 => 'low',
+);
+
+%STR2PRIORITY = (
+    h => 1,
+    m => 2,
+    l => 3,
+);
 
 ###### GLOBALS ######
 
@@ -120,18 +135,9 @@ sub list {
 
     #    $t->set_column_style( 'id', fgcolor => 'fa8888' );
 
-    my $last_pri;
-
     foreach my $row (@$rows) {
 
-        my $pri = $row->{pri};
-        $pri = 0 if !defined $pri;
-
-        if ( defined $last_pri ) {
-            if ( $last_pri != $pri ) {
-                $t->add_row_separator();
-            }
-        }
+        my $pri = get_priority( $t, $row->{pri} );
 
         my $date;
 
@@ -151,15 +157,46 @@ sub list {
         }
 
         $t->add_row(
-            [   $row->{pri},   $row->{rowid}, $row->{title},
+            [   $pri,  $row->{rowid}, $row->{title},
                 $row->{state}, $date
             ]
         );
-
-        $last_pri = $pri;
     }
 
     print $t->draw;
+}
+
+sub get_priority {
+    my $t   = shift;
+    my $pri = shift;
+
+    state $last_pri;
+    my $pri_name;
+
+    if ( !defined $last_pri) {
+        $pri_name = map_priority($pri);     
+        $last_pri = $pri;
+    }
+    elsif ($last_pri != $pri) {
+        $pri_name = map_priority($pri);
+        $t->add_row_separator();
+        $last_pri = $pri;
+    }
+    else {
+        $pri_name = '';
+    }
+
+    return $pri_name;
+}
+
+sub map_priority {
+    my $pri = shift;
+
+    if ( exists $PRIORITY2STR{$pri} ) {
+        return $PRIORITY2STR{$pri};
+    }
+    
+    return 'none';
 }
 
 sub hold {
@@ -196,7 +233,7 @@ sub wip {
 sub modify {
 
     check_required( '-i', $Id );
-
+    
     $TaskEz->modify(
         id       => $Id,
         priority => $Priority,
@@ -266,6 +303,31 @@ sub upgrade_db {
     $TaskEz->upgrade_db;
 }
 
+sub unknown_priority {
+    my $pri = shift;
+    
+    printf STDERR "Unrecognized priority.  Known priorities are: %s\n", join(', ', keys %STR2PRIORITY);
+    exit 1;    
+}
+
+sub normalize_priority {
+    my $pri = shift;
+
+    if (!looks_like_number($pri)) {
+
+        foreach my $key (keys %STR2PRIORITY) {
+
+            if ($pri =~ /^$key/i) {
+                return $STR2PRIORITY{$key};
+            }
+        }
+
+        unknown_priority($pri);
+    }
+
+    return $pri;
+}
+
 sub check_required {
     my $opt = shift;
     my $arg = shift;
@@ -289,6 +351,10 @@ sub parse_cmd_line {
     print_usage() if $help;
 
     #check_required( '-e', $Example );
+
+    if (defined $Priority) {
+        $Priority = normalize_priority($Priority);
+    }
 
     if ( @ARGV < 1 ) {
         $Action = 'list';

@@ -290,6 +290,8 @@ sub add {
 
     check_required( '-t', $Title );
 
+    $Priority = 'low' if !$Priority;
+    
     $TaskEz->add( title => $Title, priority => $Priority );
 }
 
@@ -355,7 +357,7 @@ sub parse_cmd_line {
     if (defined $Priority) {
         $Priority = normalize_priority($Priority);
     }
-
+    
     if ( @ARGV < 1 ) {
         $Action = 'list';
     }

@@ -174,7 +174,7 @@ sub get_priority {
     my $pri_name;
 
     if ( !defined $last_pri) {
-        $pri_name = map_priority($pri);     
+        $pri_name = map_priority($pri);
         $last_pri = $pri;
     }
     elsif ($last_pri != $pri) {
@@ -195,7 +195,7 @@ sub map_priority {
     if ( exists $PRIORITY2STR{$pri} ) {
         return $PRIORITY2STR{$pri};
     }
-    
+
     return 'none';
 }
 
@@ -233,7 +233,7 @@ sub wip {
 sub modify {
 
     check_required( '-i', $Id );
-    
+
     $TaskEz->modify(
         id       => $Id,
         priority => $Priority,
@@ -290,8 +290,8 @@ sub add {
 
     check_required( '-t', $Title );
 
-    $Priority = 'low' if !$Priority;
-    
+    $Priority = normalize_priority('low') if !$Priority;
+
     $TaskEz->add( title => $Title, priority => $Priority );
 }
 
@@ -307,9 +307,9 @@ sub upgrade_db {
 
 sub unknown_priority {
     my $pri = shift;
-    
+
     printf STDERR "Unrecognized priority.  Known priorities are: %s\n", join(', ', keys %STR2PRIORITY);
-    exit 1;    
+    exit 1;
 }
 
 sub normalize_priority {
@@ -357,7 +357,7 @@ sub parse_cmd_line {
     if (defined $Priority) {
         $Priority = normalize_priority($Priority);
     }
-    
+
     if ( @ARGV < 1 ) {
         $Action = 'list';
     }
@@ -375,7 +375,7 @@ sub print_usage {
 
 usage: taskez [action] [options]
 
-    actions:  
+    actions:
         add
         delete
         done
@@ -384,20 +384,20 @@ usage: taskez [action] [options]
         init
         list    (default)
         modify
-        pending 
+        pending
         start
         upgrade-db
         wip
-           
-    options: 
+
+    options:
         [--all]
-        [-h <hold dur>] (-Xd) 
+        [-h <hold dur>] (-Xd)
         [-i <id>]
         [-p <priority>]
         [-s <state>]
-        [-t <title>]  
+        [-t <title>]
         [-?] (usage)
-     
+
 HERE
 
     exit 1;
